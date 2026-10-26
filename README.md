@@ -54,6 +54,33 @@ python agente.py
 python agente.py "Alerta: aumento de erros 500 na API de pedidos"
 ```
 
+## Exemplo de diagnóstico
+
+Saída real do agente investigando o alerta padrão. Ele fez 9 consultas e chegou ao diagnóstico sozinho:
+
+```text
+🚨 Alerta: alto volume de respostas 409 (Order already exists) na Lambda mind-api-orders-create nas últimas 24 horas. Investigue.
+
+🔧 Passo 1: resumo_por_hora({})
+🔧 Passo 1: intervalos_entre_tentativas({})
+🔧 Passo 1: amostrar_erros({"status": 409, "limite": 3})
+🔧 Passo 1: amostrar_erros({"status": 500, "limite": 3})
+🔧 Passo 2: buscar_pedido({"order_id": "PED-36687537"})
+🔧 Passo 2: buscar_pedido({"order_id": "PED-95132217"})
+🔧 Passo 2: buscar_pedido({"order_id": "PED-95942441"})
+🔧 Passo 3: buscar_requisicao({"request_id": "b7f53621-eb3e-4e72-ba79-bfa2a3cf4c7b"})
+🔧 Passo 3: buscar_requisicao({"request_id": "4b81a155-52ae-47c4-8935-2c29d881b6c7"})
+```
+
+**Resumo do diagnóstico:**
+
+- **Causa (confiança alta):** os 409 são retries do cliente sobre uma criação lenta. Em 87,5% dos casos, a repetição chegou entre 9,5 e 11,5 s depois de uma 1ª tentativa que demorou mais de 10 s, o que indica timeout de ~10 s em quem chama.
+- **Impacto:** cerca de 17% das execuções (1.447 de 8.357) terminaram em 409, de forma constante nas 24 h; p95 entre 11 e 16 s.
+- **Validação da métrica:** o agente percebeu que cada 409 gera 4 linhas de log e que contar linhas superestima o problema em 4 vezes.
+- **Segunda causa:** 12,5% dos duplicados chegaram em menos de 2 s, indicando duplo envio na origem.
+- **Outro achado:** rajada de 16 erros 500 (`MongoTimeoutError`) às 03:00 UTC, tratada como problema separado, com a pergunta se esses pedidos foram perdidos.
+- **Ações sugeridas:** tratar a repetição como sucesso idempotente, ajustar o alerta para contar requisições únicas, investigar a lentidão da criação e usar chave de idempotência com índice único.
+
 ## Roteiro
 
 - [x] **Fase 1:** agente local com logs fictícios
